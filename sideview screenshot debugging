@@ -1,0 +1,116 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Sep  6 11:22:14 2023
+
+@author: thean
+"""
+
+
+
+
+import cv2
+import numpy as np
+from scipy.integrate import quad
+#from scipy.optimize import curve_fit
+
+path = r"C:\Users\thean\Downloads\sideviewshot.png"
+xvals = []
+yvals = []
+distances = []
+frames = []
+f = 0
+
+frame = cv2.imread(path)
+gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+# kernel = 5
+# blur_gray = cv2.GaussianBlur(gray, (kernel, kernel), 0)
+
+low = 50
+high = 110
+
+edges = cv2.Canny(gray, low, high)
+
+rho = 1 #distance resolution in pixels of the Hough grid
+theta = np.pi/1000 #angular resolution in radians of the Hough grid
+threshold = 5 #minimum number of votes (intersections in Hough grid cell)
+min_line_length = 20 #minimum number of pixels making up a line
+max_line_gap =20 #maximum gap in pixels between connectable line segments
+line_image = np.copy(frame) * 0
+
+lines = cv2.HoughLinesP(edges, rho, theta, threshold, np.array([]), min_line_length, max_line_gap)
+
+upperboundx = 0
+lowerboundx = 100000
+upperboundy = 0
+lowerboundy = 100000
+
+if lines is not None:
+    for line in lines:
+        for x1, y1, x2, y2 in line:  
+            #Create  rectangles
+            length= np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)#default length of line
+            theta = np.arctan2(y2 - y1, x2 - x1) #can also do arccosi, just need hypotenuse and one of x/y lenghts
+            height=25
+            #theta= np.degrees(theta)
+            deltax=height*np.cos(1.57-theta)
+            deltay=height*np.sin(1.57-theta)
+            rectx1=x1
+            recty1=y1
+            rectx2=int(x1+deltax)
+            recty2=int(y1-deltay)
+            rectx3=int(x2+deltax)
+            recty3=int(y2-deltay)
+            rectx4=x2
+            recty4=y2
+            vertices=np.array([(rectx1,recty1),(rectx2,recty2),(rectx3,recty3),(rectx4,recty4)])
+            #cv2.line(line_image, (x1, y1), (x2, y2), (0, 255, 0), 2) # lines detected
+            roi = frame[min(recty1, recty2, recty3, recty4):max(recty1, recty2, recty3, recty4), min(rectx1, rectx2, rectx3, rectx4):max(rectx1, rectx2, rectx3, rectx4)]
+            average_intensity = np.mean(roi)
+            if average_intensity<100 and abs(x1-x2)>50 and y1-y2>0:
+                xvals.append(x1)
+                xvals.append(x2)
+                yvals.append(y1)
+                yvals.append(y2)
+            else:
+                break
+    
+                #cv2.line(line_image, (x1, y1), (x2, y2), (255, 255, 0), 10) # lines detected after filter
+            #print("Average Pixel Intensity:", average_intensity)
+            
+            #Has to be same
+                #cv2.polylines(line_image, [vertices], isClosed=True, color= (0,0,255), thickness=2) #rectangles detected
+    coeffs=np.polyfit(xvals,yvals,2) #Polynomial of 2nd degree (quadratric)
+    curve_x = np.linspace(min(xvals), max(xvals), num=200)
+    curve_y = np.polyval(coeffs, curve_x)
+    curve_coords = np.column_stack((curve_x, curve_y)).astype(np.int32)
+    cv2.polylines(line_image, [curve_coords], isClosed=True, color=(0, 0, 255), thickness=2)
+    leftbound=min(xvals)
+    print(leftbound)
+    rightbound=max(xvals)
+    print(rightbound)
+    a=coeffs[0]
+    b=coeffs[1]
+    c=coeffs[2]
+
+    
+    def quadratic_function(x):
+        return a * x**2 + b * x + c
+    area, _ = quad(quadratic_function, leftbound, rightbound) #Integral inside of polynomial
+    print(area)
+
+    line_image = cv2.addWeighted(line_image, 1, frame, 1, 0)
+
+cv2.namedWindow("frame", cv2.WINDOW_NORMAL)
+cv2.resizeWindow('frame', 600, 600)
+cv2.imshow('frame', line_image)
+cv2.waitKey(0)
+
+cv2.destroyAllWindows()
+
+height = abs(upperboundy-lowerboundy)/100
+halfbase = abs(upperboundx-lowerboundx)/100
+totalarea = height*halfbase
+print("height = " + str(height) + "mm")
+print("halfbase = "  + str(halfbase) + "mm")
+print("area (assuming symmetric) = " +str(totalarea) + " sq mm")
